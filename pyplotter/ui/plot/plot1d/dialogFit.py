@@ -38,7 +38,7 @@ class Fit1d(QtWidgets.QDialog):
                        yData: np.ndarray,
                        xUnits: str='',
                        yUnits: str='',
-                       method: str='lbfgsb') -> None:
+                       method: str='least_squares') -> None:
 
         QtWidgets.QDialog.__init__(self, parent=parent)
 
@@ -1114,6 +1114,127 @@ class LorentzianDip(Fit1d):
                                         self.yUnits)
 
 
+class Fano(Fit1d):
+
+    displayedLabel = 'Fano Resonance'
+
+
+    def __init__(self, parent: QtWidgets.QDialog,
+                       xData: np.ndarray,
+                       yData: np.ndarray,
+                       xUnits: str='',
+                       yUnits: str='') -> None:
+
+
+        self.fitType = '1d'
+        self.getLatexEquation = r'y = A \frac{\left(\epsilon + q\right)^2}{\epsilon^2+1}, \epsilon = 2\frac{E-E_F}{\Gamma}'
+
+        Fit1d.__init__(self, parent=parent,
+                             xData=xData,
+                             yData=yData,
+                             xUnits=xUnits,
+                             yUnits=yUnits)
+
+
+
+    def getInitialParams(self) -> lmfit.parameter.Parameters:
+        """
+        Guess fit initial parameter from the selected x and y data.
+
+        Returns
+        -------
+        lmfit.parameter.Parameters
+            Guest fit parameters
+        """
+
+
+        # Guess initial value
+        background   = np.mean(np.sort(self.yData)[-10:])
+        center       = self.xData[np.argmin(self.yData)]
+        height       = np.mean(np.sort(self.yData)[:2])
+        intersection = (height+background)/2
+        c1           = np.abs(self.yData[:np.abs(self.yData - height).argmin()]-intersection).argmin()
+        c2           = np.abs(self.yData[np.abs(self.yData - height).argmin()+1:]-intersection).argmin()+np.abs(self.yData - height).argmin()+1
+        fwhm         = self.xData[c2]-self.xData[c1]
+        # height       = abs(height)
+
+        amplitude_guess = self.yData.max()
+        offset_guess = self.yData.min()
+        center_guess = self.xData[np.where(np.diff(self.yData) == np.diff(self.yData).max())][0]
+        gamma_guess = 0.005 # np.ptp(self.xData) / 5 # division factor is empirical, not based on anything
+        q_guess = 0 # should allow for both parity dips
+        params = lmfit.Parameters()
+        # add with tuples: (NAME VALUE VARY MIN  MAX  EXPR  BRUTE_STEP)
+        params.add('amplitude', amplitude_guess, True, None, None)
+        params.add('offset', offset_guess, True, None, None)
+        params.add('center', center_guess, True, None, None)
+        params.add('linewidth', fwhm, True, None, None)
+        params.add('q', q_guess, True, None, None)
+
+        return params
+
+
+
+    def func(self, p: lmfit.parameter.Parameters,
+                   x: np.ndarray) -> np.ndarray:
+        """
+        Fit model
+
+        Parameters
+        ----------
+        p : lmfit.parameter.Parameters
+            Current lmfit parameters.
+        x : np.ndarray
+            Selected data from the x axis.
+
+        Returns
+        -------
+        y : np.ndarray
+            Fit model result.
+        """
+
+        # Unsure about the FWHM
+        # sigma = p['fwhm']/2
+        # a = p['height']*sigma
+        # dx = (x - p['center'])
+        # y = a*sigma/(dx**2 + sigma**2)
+
+        reduced_e = 2 * ((x - p["center"]) / p["linewidth"])
+        y = p["amplitude"] * ((reduced_e + p["q"]) ** 2) / (reduced_e**2 + 1) + p["offset"]
+
+        return y 
+
+
+
+    def displayedLegend(self, p: lmfit.parameter.Parameters) -> str:
+        """
+        Return the legend of the fit model
+
+        Parameters
+        ----------
+        p : lmfit.parameter.Parameters
+            lmfit parameters
+
+        Returns
+        -------
+        legend : str
+            Legend of the fit model
+        """
+
+        return 'amplitude ={}{}<br/>'\
+               'offset    ={}{}<br/>'\
+               'center    ={}{}<br/>'\
+               'linewidth ={}{}<br/>'\
+               'q-factor  ={}{}'.format(parse_number(p['amplitude'].value, config['fitParameterNbNumber'], unified=True),
+                                        self.yUnits,
+                                        parse_number(p['offset'].value, config['fitParameterNbNumber'], unified=True),
+                                        self.yUnits,
+                                        parse_number(p['center'].value, config['fitParameterNbNumber'], unified=True),
+                                        self.xUnits,
+                                        parse_number(p['linewidth'].value, config['fitParameterNbNumber'], unified=True),
+                                        self.xUnits,
+                                        parse_number(p['q'].value, config['fitParameterNbNumber'], unified=True),
+                                        self.yUnits)
 
 
 class GaussianPeak(Fit1d):
